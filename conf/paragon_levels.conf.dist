@@ -1,0 +1,33 @@
+[worldserver]
+
+###################################################################################################
+# ParagonLevel CONFIG
+#
+#     ParagonLevel.Enable
+#         Description: Enable the Paragon Level system.
+#         Default:     0 - (Disabled)
+#                      1 - (Enabled)
+#
+
+ParagonLevel.Enable = 1
+
+#
+#     ParagonLevel.LevelUpSpell
+#         Description: Cast a spell on level up (visual)
+#         Default:     0 - (Disabled)
+#                     >0 - (Enabled)
+#
+
+ParagonLevel.LevelUpSpell = 47292
+
+#
+#     ParagonLevel.RestoreStatsOnLevelUp
+#         Description: Restore player to full health and power when paragon level up is triggered
+#         Default:     0 - (Disabled)
+#                      1 - (Enabled)
+#
+
+ParagonLevel.RestoreStatsOnLevelUp = 0
+
+#
+###################################################################################################
