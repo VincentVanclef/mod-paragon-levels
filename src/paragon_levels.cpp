@@ -4,6 +4,7 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Chat.h"
+#include "RewardSystem.h"
 
 class ParagonLevels : public PlayerScript, public WorldScript
 {
@@ -90,14 +91,12 @@ public:
 
         const uint32 paragonLevel = IncreaseParagonLevel(player);
 
-#ifdef REWARDSYSTEM_MODULE
         sRewardSystem->HandleRewards(player, "ON_PLAYER_LEVEL_UP_PARAGON");
 
-        if (player->GetCurrency()->GetParagonLevel() % 5 == 0)
+        if (paragonLevel % 5 == 0)
         {
             sRewardSystem->HandleRewards(player, "ON_PLAYER_LEVEL_UP_PARAGON_5_INTERVAL");
         }
-#endif
 
         ChatHandler(player->GetSession()).PSendSysMessage("|cff00FFFFYour Paragon Level is:|r |cffFF0000{}|r", paragonLevel);
 
