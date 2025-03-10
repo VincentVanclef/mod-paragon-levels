@@ -78,7 +78,7 @@ public:
         return paragonLevel;
     }
 
-    bool OnPlayerCanChangeLevel(Player* player, uint8 newLevel) override
+    bool OnPlayerCanGiveLevel(Player* player, uint8 newLevel) override
     {
         if (!isEnabled)
             return true;
