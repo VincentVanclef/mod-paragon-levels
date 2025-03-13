@@ -10,7 +10,7 @@ class ParagonLevels : public PlayerScript, public WorldScript
 {
 public:
     ParagonLevels() :
-        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT }),
+        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_SEND_NAME_QUERY_OPCODE }),
         WorldScript("ParagonLevels_WorldScript", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
     {
     }
@@ -19,6 +19,7 @@ public:
     {
         isEnabled = sConfigMgr->GetOption<bool>("ParagonLevel.Enable", true);
         defaultMaxLevel = sConfigMgr->GetOption<int32>("MaxPlayerLevel", DEFAULT_MAX_LEVEL);
+        m_PlayerNameTag = sConfigMgr->GetOption<bool>("ParagonLevel.PlayerNameTag", " : P ");
 
         if (isEnabled)
         {
@@ -120,8 +121,24 @@ public:
         return false;
     }
 
+    void OnPlayerSendNameQueryOpcode(Player* player, std::string& name) override
+    {
+        if (!isEnabled || !player || m_PlayerNameTag.empty())
+            return;
+
+        if (!player)
+            return;
+
+        const uint32 paragonLevel = GetParagonLevel(player);
+        if (paragonLevel == 0)
+            return;
+
+        name += m_PlayerNameTag += std::to_string(paragonLevel);
+    }
+
 private:
     bool isEnabled = false;
+    std::string m_PlayerNameTag = "";
     int32 defaultMaxLevel = 0;
     std::unordered_map<ObjectGuid, uint32> m_PlayerParagonLevels;
 };

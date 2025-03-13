@@ -30,4 +30,13 @@ ParagonLevel.LevelUpSpell = 47292
 ParagonLevel.RestoreStatsOnLevelUp = 0
 
 #
+#     ParagonLevel.PlayerNameTag
+#         Description: Enable the Paragon Level system.
+#         Default:     "" - (Disabled)
+#                      " : P " - (Enabled - will be displayed like "Leroy : P 12" where 12 is the player Leroy's ParagonLevel)
+#
+
+ParagonLevel.PlayerNameTag = " : P "
+
+#
 ###################################################################################################
