@@ -48,6 +48,7 @@ public:
         if (auto currency = sCurrencyHandler->GetCharacterCurrency(player->GetGUID()))
         {
             currency->ModifyParagonLevel(1);
+            player->GetSession()->SendNameQueryOpcode(player->GetGUID());
             return currency->GetParagonLevel();
         }
 
