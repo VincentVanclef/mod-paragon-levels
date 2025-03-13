@@ -114,7 +114,7 @@ public:
 
 private:
     bool isEnabled = false;
-    std::string m_PlayerNameTag = "";
+    std::string m_PlayerNameTag;
     int32 defaultMaxLevel = 0;
     std::unordered_map<ObjectGuid, uint32> m_PlayerParagonLevels;
 };
