@@ -109,7 +109,7 @@ public:
         if (paragonLevel == 0)
             return;
 
-        name += m_PlayerNameTag = std::to_string(paragonLevel);
+        name += m_PlayerNameTag + std::to_string(paragonLevel);
     }
 
 private:
