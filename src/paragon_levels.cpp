@@ -10,7 +10,7 @@ class ParagonLevels : public PlayerScript, public WorldScript
 {
 public:
     ParagonLevels() :
-        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_SEND_NAME_QUERY_OPCODE }),
+        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_SEND_NAME_QUERY_OPCODE }),
         WorldScript("ParagonLevels_WorldScript", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
     {
     }
@@ -19,7 +19,7 @@ public:
     {
         isEnabled = sConfigMgr->GetOption<bool>("ParagonLevel.Enable", true);
         defaultMaxLevel = sConfigMgr->GetOption<int32>("MaxPlayerLevel", DEFAULT_MAX_LEVEL);
-        m_PlayerNameTag = sConfigMgr->GetOption<bool>("ParagonLevel.PlayerNameTag", " : P ");
+        m_PlayerNameTag = sConfigMgr->GetOption<std::string>("ParagonLevel.PlayerNameTag", " : P ");
 
         if (isEnabled)
         {
@@ -35,48 +35,23 @@ public:
         }
     }
 
-    void OnPlayerLogin(Player* player) override
+    static uint32 GetParagonLevel(Player* player)
     {
-        if (!isEnabled)
-            return;
-
-        if (QueryResult result = CharacterDatabase.Query("SELECT Level FROM custom_paragon_levels WHERE Guid = '{}'", player->GetGUID().GetCounter()))
-        {
-            uint32 level = (*result)[0].Get<uint32>();
-            m_PlayerParagonLevels[player->GetGUID()] = level;
-        }
-        else
-            m_PlayerParagonLevels[player->GetGUID()] = 0;
-    }
-
-    void OnPlayerLogout(Player* player) override
-    {
-        if (!isEnabled)
-            return;
-
-        auto itr = m_PlayerParagonLevels.find(player->GetGUID());
-        if (itr != m_PlayerParagonLevels.end())
-            m_PlayerParagonLevels.erase(itr);
-    }
-
-    uint32 GetParagonLevel(Player* player)
-    {
-        auto itr = m_PlayerParagonLevels.find(player->GetGUID());
-        if (itr != m_PlayerParagonLevels.end())
-            return itr->second;
+        if (auto currency = sCurrencyHandler->GetCharacterCurrency(player->GetGUID()))
+            return currency->GetParagonLevel();
 
         return 0;
     }
 
-    uint32 IncreaseParagonLevel(Player* player)
+    static uint32 IncreaseParagonLevel(Player* player)
     {
-        uint32& paragonLevel = m_PlayerParagonLevels[player->GetGUID()];
+        if (auto currency = sCurrencyHandler->GetCharacterCurrency(player->GetGUID()))
+        {
+            currency->ModifyParagonLevel(1);
+            return currency->GetParagonLevel();
+        }
 
-        ++paragonLevel;
-
-        CharacterDatabase.Execute("REPLACE INTO custom_paragon_levels (Guid, Level) VALUES ('{}', '{}')", player->GetGUID().GetCounter(), paragonLevel);
-
-        return paragonLevel;
+        return 0;
     }
 
     bool OnPlayerCanGiveLevel(Player* player, uint8 newLevel) override
