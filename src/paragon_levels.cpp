@@ -102,7 +102,7 @@ public:
             }
         }
 
-        player->SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr->GetXPForLevel(player->GetLevel()));
+        player->SetUInt32Value(PLAYER_NEXT_LEVEL_XP, GetXpForNextLevel(player, paragonLevel));
 
         return false;
     }
