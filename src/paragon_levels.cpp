@@ -10,7 +10,7 @@ class ParagonLevels : public PlayerScript, public WorldScript
 {
 public:
     ParagonLevels() :
-        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_SEND_NAME_QUERY_OPCODE }),
+        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_CALCULATE_XP_FOR_NEXT_LEVEL, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_SEND_NAME_QUERY_OPCODE }),
         WorldScript("ParagonLevels_WorldScript", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
     {
     }
@@ -18,6 +18,7 @@ public:
     void OnAfterConfigLoad(bool reload) override
     {
         isEnabled = sConfigMgr->GetOption<bool>("ParagonLevel.Enable", true);
+        m_xpPerLevelMod = sConfigMgr->GetOption<float>("ParagonLevel.XpPerLevelMod", 2.0f);
         defaultMaxLevel = sConfigMgr->GetOption<int32>("MaxPlayerLevel", DEFAULT_MAX_LEVEL);
         m_PlayerNameTag = sConfigMgr->GetOption<std::string>("ParagonLevel.PlayerNameTag", " : P ");
 
@@ -53,6 +54,15 @@ public:
         }
 
         return 0;
+    }
+
+    uint32 GetXpForNextLevel(Player* player, uint32 paragonLevel) const
+    {
+        if (m_xpPerLevelMod <= 1.0f)
+            return sObjectMgr->GetXPForLevel(player->GetLevel());
+
+        float mod = 1 + ((paragonLevel * m_xpPerLevelMod) / 100.0f);
+        return sObjectMgr->GetXPForLevel(player->GetLevel()) * mod;
     }
 
     bool OnPlayerCanGiveLevel(Player* player, uint8 newLevel) override
@@ -92,9 +102,22 @@ public:
             }
         }
 
-        player->SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr->GetXPForLevel(player->GetLevel()));
-
         return false;
+    }
+
+    void OnPlayerCalculateXpForNextLevel(Player* player, uint32& xp) override
+    {
+        if (!isEnabled || !player || m_PlayerNameTag.empty())
+            return;
+
+        if (!player)
+            return;
+
+        const uint32 paragonLevel = GetParagonLevel(player);
+        if (paragonLevel == 0)
+            return;
+
+        xp = GetXpForNextLevel(player, paragonLevel);
     }
 
     void OnPlayerSendNameQueryOpcode(Player* player, std::string& name) override
@@ -114,6 +137,7 @@ public:
 
 private:
     bool isEnabled = false;
+    float m_xpPerLevelMod = 2.0f;
     std::string m_PlayerNameTag;
     int32 defaultMaxLevel = 0;
     std::unordered_map<ObjectGuid, uint32> m_PlayerParagonLevels;

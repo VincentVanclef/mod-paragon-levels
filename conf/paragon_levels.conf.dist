@@ -30,6 +30,14 @@ ParagonLevel.LevelUpSpell = 47292
 ParagonLevel.RestoreStatsOnLevelUp = 0
 
 #
+#     ParagonLevel.XpPerLevelMod
+#         Description: Enable the Paragon Level system.
+#         Default:     "2" - Requires 2% extra XP per paragon level to reach the next
+#
+
+ParagonLevel.XpPerLevelMod = 2
+
+#
 #     ParagonLevel.PlayerNameTag
 #         Description: Enable the Paragon Level system.
 #         Default:     "" - (Disabled)
