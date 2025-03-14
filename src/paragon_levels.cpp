@@ -10,7 +10,7 @@ class ParagonLevels : public PlayerScript, public WorldScript
 {
 public:
     ParagonLevels() :
-        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_CALCULATE_XP_FOR_NEXT_LEVEL, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_SEND_NAME_QUERY_OPCODE }),
+        PlayerScript("ParagonLevels_PlayerScript", { PLAYERHOOK_ON_GET_XP_FOR_LEVEL, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CAN_GIVE_LEVEL, PLAYERHOOK_ON_SEND_NAME_QUERY_OPCODE }),
         WorldScript("ParagonLevels_WorldScript", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
     {
     }
@@ -107,7 +107,7 @@ public:
         return false;
     }
 
-    void OnPlayerCalculateXpForNextLevel(Player* player, uint32& xp) override
+    void OnPlayerGetXpForLevel(Player* player, uint32& xp) override
     {
         if (!isEnabled || !player || m_PlayerNameTag.empty())
             return;
