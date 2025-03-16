@@ -112,9 +112,6 @@ public:
         if (!isEnabled || !player || m_PlayerNameTag.empty())
             return;
 
-        if (!player)
-            return;
-
         const uint32 paragonLevel = GetParagonLevel(player);
         if (paragonLevel == 0)
             return;
@@ -125,9 +122,6 @@ public:
     void OnPlayerSendNameQueryOpcode(Player* player, std::string& name) override
     {
         if (!isEnabled || !player || m_PlayerNameTag.empty())
-            return;
-
-        if (!player)
             return;
 
         const uint32 paragonLevel = GetParagonLevel(player);
