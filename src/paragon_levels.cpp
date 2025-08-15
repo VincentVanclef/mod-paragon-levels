@@ -73,6 +73,9 @@ public:
         if (newLevel <= defaultMaxLevel)
             return true;
 
+        if (player->GetSession()->IsBot())
+            return false;
+
         if (const uint32 levelUpSpell = sConfigMgr->GetOption<uint32>("ParagonLevel.LevelUpSpell", 47292))
             player->CastSpell(player, levelUpSpell, true);
 
