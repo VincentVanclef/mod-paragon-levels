@@ -49,7 +49,6 @@ public:
         if (auto currency = sCurrencyHandler->GetCharacterCurrency(player->GetGUID()))
         {
             currency->ModifyParagonLevel(1);
-            player->GetSession()->SendNameQueryOpcode(player->GetGUID());
             return currency->GetParagonLevel();
         }
 
@@ -120,18 +119,6 @@ public:
             return;
 
         xp = GetXpForNextLevel(player, paragonLevel);
-    }
-
-    void OnPlayerSendNameQueryOpcode(Player* player, std::string& name) override
-    {
-        if (!isEnabled || !player || m_PlayerNameTag.empty())
-            return;
-
-        const uint32 paragonLevel = GetParagonLevel(player);
-        if (paragonLevel == 0)
-            return;
-
-        name += m_PlayerNameTag + std::to_string(paragonLevel);
     }
 
 private:
