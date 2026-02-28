@@ -11,6 +11,10 @@
  *     Client sends:  "RTG_PARAGON\tQ:<name>"   (WHISPER, LANG_ADDON)
  *     Server replies:"RTG_PARAGON\tA:<name>:<paragon>"
  *
+ * IMPORTANT NOTE ABOUT CHAT HOOKS:
+ * - Your AzerothCore revision does NOT have PLAYERHOOK_ON_CHAT / PlayerScript::OnChat.
+ * - So the addon responder is implemented via WorldSessionScript and intercepts CMSG_MESSAGECHAT.
+ *
  * Notes:
  * - This file assumes your paragon value comes from sCurrencyHandler->GetCharacterCurrency(guid)->GetParagonLevel()
  * - This file assumes you have RewardSystem available as sRewardSystem.
@@ -32,6 +36,7 @@
 #include "ScriptMgr.h"
 #include "World.h"
 #include "WorldPacket.h"
+#include "WorldSession.h"
 
 #include <fmt/format.h>
 #include <limits>
@@ -98,7 +103,7 @@ namespace
         pkt << uint64(receiver->GetGUID().GetRawValue());    // sender guid (server->client, ok to use receiver guid here)
         pkt << uint32(0);                                    // flags
         pkt << uint64(receiver->GetGUID().GetRawValue());    // receiver guid
-        pkt << uint32(len + 1);                              // msg length (includes null terminator in some clients)
+        pkt << uint32(len + 1);                              // msg length
         pkt << full;                                         // msg
         pkt << uint8(0);                                     // chat tag / null
 
@@ -114,8 +119,7 @@ public:
             {
                 PLAYERHOOK_ON_GET_XP_FOR_LEVEL,
                 PLAYERHOOK_ON_LEVEL_CHANGED,
-                PLAYERHOOK_ON_CAN_GIVE_LEVEL,
-                PLAYERHOOK_ON_CHAT
+                PLAYERHOOK_ON_CAN_GIVE_LEVEL
             })
         , WorldScript("ParagonLevels_WorldScript", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
     {
@@ -288,51 +292,6 @@ public:
         xp = GetXpForNextLevel(player, paragonLevel);
     }
 
-    // ------------------------------- addon whisper responder -------------------------------
-    // Client (addon) sends whisper LANG_ADDON: "RTG_PARAGON\tQ:<name>"
-    // Server replies whisper LANG_ADDON: "RTG_PARAGON\tA:<name>:<paragon>"
-
-    void OnChat(Player* player, uint32 type, uint32 lang, std::string& msg) override
-    {
-        if (!player)
-            return;
-
-        if (type != CHAT_MSG_WHISPER || lang != LANG_ADDON)
-            return;
-
-        // msg is "PREFIX\tPAYLOAD"
-        auto parts = SplitTab(msg);
-        if (parts.size() < 2)
-            return;
-
-        std::string const& prefix  = parts[0];
-        std::string const& payload = parts[1];
-
-        if (prefix != "RTG_PARAGON")
-            return;
-
-        // Payload: "Q:<name>"
-        if (payload.rfind("Q:", 0) != 0 || payload.size() <= 2)
-        {
-            msg.clear();
-            return;
-        }
-
-        std::string qName = payload.substr(2);
-
-        // Online lookup (sufficient for tooltip/target usage)
-        Player* target = ObjectAccessor::FindPlayerByName(qName);
-        uint32 paragon = target ? GetParagonLevel(target) : 0;
-
-        std::string reply = fmt::format("A:{}:{}", qName, paragon);
-
-        WorldPacket pkt = CreateAddonWhisperPacket(prefix, reply, player);
-        player->SendDirectMessage(&pkt);
-
-        // Prevent any further processing of this addon whisper
-        msg.clear();
-    }
-
     // ------------------------------- toggles (per character) -------------------------------
 
     bool IsChatColorEnabled(Player* player)
@@ -422,6 +381,77 @@ private:
 
 ParagonLevels* ParagonLevels::s_instance = nullptr;
 
+// ------------------------------- addon whisper responder -------------------------------
+// Client (addon) sends whisper LANG_ADDON: "RTG_PARAGON\tQ:<name>"
+// Server replies whisper LANG_ADDON: "RTG_PARAGON\tA:<name>:<paragon>"
+//
+// Implemented as a WorldSessionScript because this core revision does not support PLAYERHOOK_ON_CHAT.
+class ParagonAddonResponder : public WorldSessionScript
+{
+public:
+    ParagonAddonResponder() : WorldSessionScript("ParagonAddonResponder") { }
+
+    void OnPacketReceive(WorldSession* session, WorldPacket& packet) override
+    {
+        if (!session)
+            return;
+
+        if (packet.GetOpcode() != CMSG_MESSAGECHAT)
+            return;
+
+        Player* player = session->GetPlayer();
+        if (!player)
+            return;
+
+        // Copy packet so we do not disturb the normal core handler (important).
+        WorldPacket copy(packet);
+
+        // WotLK CMSG_MESSAGECHAT parse (AzerothCore style):
+        // uint32 type, uint32 lang, [string receiver if whisper], string msg
+        uint32 type = 0;
+        uint32 lang = 0;
+        std::string receiver;
+        std::string msg;
+
+        copy >> type;
+        copy >> lang;
+
+        if (type == CHAT_MSG_WHISPER)
+            copy >> receiver;
+
+        copy >> msg;
+
+        if (type != CHAT_MSG_WHISPER || lang != LANG_ADDON)
+            return;
+
+        // msg is "PREFIX\tPAYLOAD"
+        auto parts = SplitTab(msg);
+        if (parts.size() < 2)
+            return;
+
+        std::string const& prefix  = parts[0];
+        std::string const& payload = parts[1];
+
+        if (prefix != "RTG_PARAGON")
+            return;
+
+        // Payload: "Q:<name>"
+        if (payload.rfind("Q:", 0) != 0 || payload.size() <= 2)
+            return;
+
+        std::string qName = payload.substr(2);
+
+        // Online lookup (sufficient for tooltip/target usage)
+        Player* target = ObjectAccessor::FindPlayerByName(qName);
+        uint32 paragon = target ? ParagonLevels::GetParagonLevel(target) : 0;
+
+        std::string reply = fmt::format("A:{}:{}", qName, paragon);
+
+        WorldPacket out = CreateAddonWhisperPacket(prefix, reply, player);
+        player->SendDirectMessage(&out);
+    }
+};
+
 // --------------------------------- commands ---------------------------------
 
 class ParagonLevelsCommands : public CommandScript
@@ -505,5 +535,6 @@ public:
 void Add_ParagonLevels()
 {
     new ParagonLevels();
+    new ParagonAddonResponder();
     new ParagonLevelsCommands();
 }
