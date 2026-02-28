@@ -350,27 +350,29 @@ public:
         return true;
     }
 
-    std::vector<ChatCommand> GetCommands() const override
-    {
-        static std::vector<ChatCommand> paragonColorSub =
-        {
-            { "",   SEC_PLAYER, true, &HandleParagonColor,   "" },
-            { "on", SEC_PLAYER, true, &HandleParagonColorOn, "" },
-            { "off",SEC_PLAYER, true, &HandleParagonColorOff,"" },
-        };
+	Acore::ChatCommands::ChatCommandTable GetCommands() const override
+	{
+		using namespace Acore::ChatCommands;
 
-        static std::vector<ChatCommand> paragonRoot =
-        {
-            { "color", SEC_PLAYER, true, nullptr, "", paragonColorSub },
-        };
+		static ChatCommandTable paragonColorSub =
+		{
+			ChatCommandBuilder("",    HandleParagonColor,    SEC_PLAYER, Console::No),
+			ChatCommandBuilder("on",  HandleParagonColorOn,  SEC_PLAYER, Console::No),
+			ChatCommandBuilder("off", HandleParagonColorOff, SEC_PLAYER, Console::No),
+		};
 
-        static std::vector<ChatCommand> commands =
-        {
-            { "paragon", SEC_PLAYER, true, nullptr, "", paragonRoot },
-        };
+		static ChatCommandTable paragonRoot =
+		{
+			ChatCommandBuilder("color", paragonColorSub),
+		};
 
-        return commands;
-    }
+		static ChatCommandTable commands =
+		{
+			ChatCommandBuilder("paragon", paragonRoot),
+		};
+
+		return commands;
+	}
 };
 
 void Add_ParagonLevels()
