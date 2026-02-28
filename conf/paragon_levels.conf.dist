@@ -38,13 +38,54 @@ ParagonLevel.RestoreStatsOnLevelUp = 0
 ParagonLevel.XpPerLevelMod = 2
 
 #
-#     ParagonLevel.PlayerNameTag
-#         Description: Enable the Paragon Level system.
-#         Default:     "" - (Disabled)
-#                      " : P " - (Enabled - will be displayed like "Leroy : P 12" where 12 is the player Leroy's ParagonLevel)
+#     ParagonLevel.MaxParagonLevel
+#         Description: Maximum Paragon level a character can reach.
+#         Default:     200
 #
 
-ParagonLevel.PlayerNameTag = " : P "
+ParagonLevel.MaxParagonLevel = 200
+
+#
+#     Paragon milestone titles (every 50 Paragon levels)
+#         Description: Title IDs from CharTitles.dbc to award at milestones.
+#                      Set to 0 to disable a milestone title.
+#         Defaults:    0 (disabled)
+#
+
+ParagonLevel.TitleAt50  = 0
+ParagonLevel.TitleAt100 = 0
+ParagonLevel.TitleAt150 = 0
+ParagonLevel.TitleAt200 = 0
+
+#
+#     ParagonLevel.ChatColor.*
+#         Description: Tier color applied to Paragon chat strings (NOT the player's class name color).
+#                      Each player can toggle these colors for themselves:
+#                        .paragon color on
+#                        .paragon color off
+#
+
+ParagonLevel.ChatColor.DefaultEnabled = 1
+
+# 1-49
+ParagonLevel.ChatColor.Tier0 = "|cffFFFFFF"
+# 50-99
+ParagonLevel.ChatColor.Tier1 = "|cff00FF7F"
+# 100-149
+ParagonLevel.ChatColor.Tier2 = "|cff00B0FF"
+# 150-199
+ParagonLevel.ChatColor.Tier3 = "|cffC070FF"
+# 200
+ParagonLevel.ChatColor.Tier4 = "|cffFF8000"
+
+#
+#     ParagonLevel.PlayerNameTag (DEPRECATED)
+#         Description: Older Paragon builds appended "+X" or tags to player names via NAME_QUERY.
+#                      This module no longer touches player names.
+#         Default:     "" - (Unused)
+#
+
+ParagonLevel.PlayerNameTag = ""
 
 #
 ###################################################################################################
