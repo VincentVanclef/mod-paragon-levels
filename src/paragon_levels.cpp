@@ -120,7 +120,7 @@ public:
                 PLAYERHOOK_ON_GET_XP_FOR_LEVEL,
                 PLAYERHOOK_ON_LEVEL_CHANGED,
                 PLAYERHOOK_ON_CAN_GIVE_LEVEL,
-				PLAYERHOOK_ON_PLAYER_BEFORE_SEND_CHAT_MESSAGE
+				PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE
             })
         , WorldScript("ParagonLevels_WorldScript", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
     {
@@ -506,6 +506,5 @@ public:
 void Add_ParagonLevels()
 {
     new ParagonLevels();
-    new ParagonAddonResponder();
     new ParagonLevelsCommands();
 }
