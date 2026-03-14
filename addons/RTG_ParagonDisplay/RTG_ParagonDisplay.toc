@@ -1,0 +1,6 @@
+## Interface: 30300
+## Title: RTG Paragon Display
+## Notes: Shows Paragon as a second line (tooltip + target/focus). Focus-safe build.
+## Author: RTG
+## Version: 1.1.2
+RTG_ParagonDisplay.lua

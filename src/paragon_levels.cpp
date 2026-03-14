@@ -37,6 +37,7 @@
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "rtg_scoreboard_telemetry_sink.h"
 
 #include <fmt/format.h>
 #include <limits>
@@ -301,6 +302,7 @@ public:
 
         // Titles at milestones
         HandleMilestoneRewards(player, paragonLevel);
+        PublishTelemetryMilestone(player, paragonLevel);
 
         // Restore resources (optional)
         if (sConfigMgr->GetOption<bool>("ParagonLevel.RestoreStatsOnLevelUp", false))
@@ -366,6 +368,38 @@ public:
         if (paragonLevel >= 50)
             return m_colorTier1;
         return m_colorTier0;
+    }
+
+    static bool IsTelemetryMilestone(uint32 paragonLevel)
+    {
+        switch (paragonLevel)
+        {
+            case 25:
+            case 50:
+            case 75:
+            case 100:
+            case 125:
+            case 150:
+            case 175:
+            case 200:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static void PublishTelemetryMilestone(Player* player, uint32 paragonLevel)
+    {
+        if (!player || !IsTelemetryMilestone(paragonLevel))
+            return;
+
+        RTG::ScoreboardTelemetrySink::LogEvent(
+            RTG::ScoreboardTelemetrySink::PARAGON_LEVEL,
+            player,
+            paragonLevel,
+            0,
+            Acore::StringFormat("Reached Paragon {}", paragonLevel),
+            Acore::StringFormat("paragon:{}:{}", player->GetGUID().GetCounter(), paragonLevel));
     }
 
     void HandleMilestoneRewards(Player* player, uint32 paragonLevel)
