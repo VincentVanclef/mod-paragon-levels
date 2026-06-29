@@ -39,7 +39,19 @@
 #include "WorldSession.h"
 #include "rtg_scoreboard_telemetry_sink.h"
 
+#if __has_include("RandomPlayerbotMgr.h")
+#include "RandomPlayerbotMgr.h"
+#define RTG_PARAGON_HAS_RANDOM_PLAYERBOT_MGR 1
+#elif __has_include("Bot/RandomPlayerbotMgr.h")
+#include "Bot/RandomPlayerbotMgr.h"
+#define RTG_PARAGON_HAS_RANDOM_PLAYERBOT_MGR 1
+#else
+#define RTG_PARAGON_HAS_RANDOM_PLAYERBOT_MGR 0
+#endif
+
 #include <fmt/format.h>
+#include <algorithm>
+#include <cctype>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -110,7 +122,69 @@ namespace
 
         return pkt;
     }
+
+    static std::string ToLowerAscii(std::string value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+        {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
+    }
+
+    static bool StartsWithNoCase(std::string const& value, std::string const& prefix)
+    {
+        if (prefix.empty() || value.size() < prefix.size())
+            return false;
+
+        return ToLowerAscii(value.substr(0, prefix.size())) == ToLowerAscii(prefix);
+    }
+
+    static bool LooksLikeRandomBotAccount(Player* target)
+    {
+        if (!target || !target->GetSession())
+            return false;
+
+        std::string prefix = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAccountPrefix", "rndbot");
+        if (prefix.empty())
+            return false;
+
+        uint32 accountId = target->GetSession()->GetAccountId();
+        QueryResult result = LoginDatabase.Query(fmt::format("SELECT username FROM account WHERE id = {} LIMIT 1", accountId));
+        if (!result)
+            return false;
+
+        Field* fields = result->Fetch();
+        return StartsWithNoCase(fields[0].Get<std::string>(), prefix);
+    }
+
+    // Values sent to the client addon:
+    //   real        = normal connected player
+    //   rndbot      = Playerbots random bot account/type
+    //   addclassbot = Playerbots AddClass/generated helper bot
+    //   bot         = bot session, but random/addclass type could not be proven
+    static std::string GetPlayerKindToken(Player* target)
+    {
+        if (!target || !target->GetSession() || !target->GetSession()->IsBot())
+            return "real";
+
+#if RTG_PARAGON_HAS_RANDOM_PLAYERBOT_MGR
+        if (sRandomPlayerbotMgr.IsRandomBot(target))
+            return "rndbot";
+
+        if (sRandomPlayerbotMgr.IsAddclassBot(target))
+            return "addclassbot";
+#endif
+
+        // Fallback for builds where the RandomPlayerbotMgr header is not visible to this module:
+        // random bot accounts usually use AiPlayerbot.RandomBotAccountPrefix (default: rndbot).
+        if (LooksLikeRandomBotAccount(target))
+            return "rndbot";
+
+        return "bot";
+    }
 }
+
 
 class ParagonLevels : public PlayerScript, public WorldScript
 {
@@ -163,9 +237,15 @@ public:
 
 		Player* target = ObjectAccessor::FindPlayerByName(qName);
 		uint32 paragon = target ? GetParagonLevel(target) : 0;
+		std::string kind = GetPlayerKindToken(target);
 
-		std::string reply = fmt::format("A:{}:{}", qName, paragon);
+		// Keep the old A: reply for any older installed RTG_ParagonDisplay clients,
+		// then send B: with the extra real-player/playerbot/rndbot metadata.
+		std::string legacyReply = fmt::format("A:{}:{}", qName, paragon);
+		WorldPacket legacyPkt = CreateAddonWhisperPacket(prefix, legacyReply, player);
+		player->SendDirectMessage(&legacyPkt);
 
+		std::string reply = fmt::format("B:{}:{}:{}", qName, paragon, kind);
 		WorldPacket pkt = CreateAddonWhisperPacket(prefix, reply, player);
 		player->SendDirectMessage(&pkt);
 

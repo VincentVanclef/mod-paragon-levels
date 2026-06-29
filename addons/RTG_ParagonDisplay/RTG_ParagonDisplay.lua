@@ -1,9 +1,16 @@
 -- RTG_ParagonDisplay.lua (WotLK 3.3.5a)
--- v2.0.1 - Server-query build (NO +N name parsing)
+-- v2.1.0 - Server-query build with player/rndbot tooltip support
 --
 -- Requires server responder in mod-paragon-levels:
 --   Client whisper LANG_ADDON:  "RTG_PARAGON\tQ:<name>"
---   Server reply  LANG_ADDON:  "RTG_PARAGON\tA:<name>:<paragon>"
+--   Server legacy reply:        "RTG_PARAGON\tA:<name>:<paragon>"
+--   Server extended reply:      "RTG_PARAGON\tB:<name>:<paragon>:<kind>"
+--
+-- kind values:
+--   real        = normal player
+--   rndbot      = Playerbots random bot
+--   addclassbot = Playerbots AddClass/generated helper bot
+--   bot         = bot session, exact bot subtype unknown
 
 RTG_PARAGON_PREFIX = "RTG_PARAGON"
 RTG_PARAGON_LABEL  = "Paragon Level: "
@@ -19,9 +26,16 @@ local function Now()
   return GetTime()
 end
 
--- Cache: cache[name] = { lvl = number, t = time() }
+-- Cache: cache[name] = { lvl = number, kind = string, t = time() }
 local cache = {}
 local lastReq = {}
+
+local function NormalizeKind(kind)
+  if kind == "rndbot" or kind == "addclassbot" or kind == "bot" or kind == "real" then
+    return kind
+  end
+  return "real"
+end
 
 local function CacheGet(name)
   local e = name and cache[name]
@@ -30,12 +44,12 @@ local function CacheGet(name)
     cache[name] = nil
     return nil
   end
-  return e.lvl
+  return e
 end
 
-local function CacheSet(name, lvl)
+local function CacheSet(name, lvl, kind)
   if not name or name == "" then return end
-  cache[name] = { lvl = tonumber(lvl) or 0, t = Now() }
+  cache[name] = { lvl = tonumber(lvl) or 0, kind = NormalizeKind(kind), t = Now() }
 end
 
 local function EnsurePrefix()
@@ -59,6 +73,60 @@ local function RequestParagon(name)
 
   -- SendAddonMessage(prefix, message, channel, target)
   SendAddonMessage(RTG_PARAGON_PREFIX, "Q:" .. name, "WHISPER", me)
+end
+
+-- ------------------------------- Text helpers -------------------------------
+
+local function IsBotKind(kind)
+  return kind == "rndbot" or kind == "addclassbot" or kind == "bot"
+end
+
+local function KindDisplay(kind)
+  if kind == "rndbot" then
+    return "Random Bot"
+  end
+  if kind == "addclassbot" then
+    return "AddClass Bot"
+  end
+  if kind == "bot" then
+    return "Playerbot"
+  end
+  return "Real Player"
+end
+
+local function KindColor(kind)
+  if kind == "rndbot" then
+    return 1.0, 0.82, 0.0
+  end
+  if kind == "addclassbot" then
+    return 0.8, 0.6, 1.0
+  end
+  if kind == "bot" then
+    return 1.0, 0.65, 0.2
+  end
+  return 0.2, 1.0, 0.2
+end
+
+local function BuildUnitFrameText(info)
+  if not info then return "" end
+
+  local text = RTG_PARAGON_LABEL .. tostring(info.lvl or 0)
+
+  -- Keep real players exactly as before. Only bots get the extra line under Paragon.
+  if IsBotKind(info.kind) then
+    text = text .. "\nBot: " .. KindDisplay(info.kind)
+  end
+
+  return text
+end
+
+local function AddInfoTooltipLines(tooltip, info)
+  if not tooltip or not info then return end
+
+  tooltip:AddLine(RTG_PARAGON_LABEL .. tostring(info.lvl or 0), 0.4, 0.8, 1.0)
+
+  local r, g, b = KindColor(info.kind)
+  tooltip:AddLine("Player Type: " .. KindDisplay(info.kind), r, g, b)
 end
 
 -- ------------------------------- UI helpers -------------------------------
@@ -107,14 +175,14 @@ local function SetUnitFrameParagon(frame, nameFS, unit)
   local fs = EnsureUnitParagonFS(frame, nameFS)
   if not fs then return end
 
-  local p = CacheGet(rawName)
-  if p == nil then
+  local info = CacheGet(rawName)
+  if info == nil then
     RequestParagon(rawName)
     fs:Hide()
     return
   end
 
-  fs:SetText(RTG_PARAGON_LABEL .. p)
+  fs:SetText(BuildUnitFrameText(info))
   fs:Show()
 end
 
@@ -137,18 +205,121 @@ GameTooltip:HookScript("OnTooltipSetUnit", function(self)
     return
   end
 
-  local p = CacheGet(name)
-  if p == nil then
+  local info = CacheGet(name)
+  if info == nil then
     RequestParagon(name)
     tooltipGuard = false
     return
   end
 
-  self:AddLine(RTG_PARAGON_LABEL .. p, 0.4, 0.8, 1.0)
+  AddInfoTooltipLines(self, info)
   self:Show()
 
   tooltipGuard = false
 end)
+
+-- ------------------------------- Who list tooltip -------------------------------
+
+local currentWhoButton = nil
+local currentWhoName = nil
+
+local function GetWhoButtonIndex(button)
+  if not button then return nil end
+
+  local id = button:GetID()
+  if not id or id <= 0 then
+    local buttonName = button:GetName()
+    if buttonName then
+      id = tonumber(buttonName:match("WhoFrameButton(%d+)"))
+    end
+  end
+
+  if not id or id <= 0 then return nil end
+
+  local offset = 0
+  if FauxScrollFrame_GetOffset and WhoListScrollFrame then
+    offset = FauxScrollFrame_GetOffset(WhoListScrollFrame) or 0
+  end
+
+  return offset + id
+end
+
+local function GetWhoButtonName(button)
+  local index = GetWhoButtonIndex(button)
+  if index and GetWhoInfo then
+    local name = GetWhoInfo(index)
+    if name and name ~= "" then
+      return name
+    end
+  end
+
+  local buttonName = button and button:GetName()
+  if buttonName then
+    local fs = _G[buttonName .. "Name"]
+    if fs and fs.GetText then
+      local text = fs:GetText()
+      if text and text ~= "" then return text end
+    end
+  end
+
+  if button and button.name and button.name.GetText then
+    local text = button.name:GetText()
+    if text and text ~= "" then return text end
+  end
+
+  return nil
+end
+
+local function ShowWhoTooltip(button)
+  local name = GetWhoButtonName(button)
+  if not name or name == "" then return end
+
+  currentWhoButton = button
+  currentWhoName = name
+
+  local info = CacheGet(name)
+  if info == nil then
+    RequestParagon(name)
+  end
+
+  GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine(name, 1.0, 0.82, 0.0)
+
+  if info then
+    AddInfoTooltipLines(GameTooltip, info)
+  else
+    GameTooltip:AddLine("RTG info: loading...", 0.7, 0.7, 0.7)
+  end
+
+  GameTooltip:Show()
+end
+
+local function RefreshWhoTooltip(name)
+  if not currentWhoButton or not currentWhoName or currentWhoName ~= name then return end
+  if not GameTooltip:IsShown() then return end
+  ShowWhoTooltip(currentWhoButton)
+end
+
+local function HideWhoTooltip(button)
+  if button == currentWhoButton then
+    currentWhoButton = nil
+    currentWhoName = nil
+    GameTooltip:Hide()
+  end
+end
+
+local function HookWhoFrameButtons()
+  local count = WHOFRAME_NUM_BUTTONS or 17
+  for i = 1, count do
+    local button = _G["WhoFrameButton" .. i]
+    if button and not button.__rtgParagonHooked then
+      button:HookScript("OnEnter", ShowWhoTooltip)
+      button:HookScript("OnLeave", HideWhoTooltip)
+      button.__rtgParagonHooked = true
+    end
+  end
+end
 
 -- ------------------------------- Events / update loop -------------------------------
 
@@ -157,11 +328,34 @@ loader:RegisterEvent("PLAYER_LOGIN")
 loader:RegisterEvent("CHAT_MSG_ADDON")
 loader:RegisterEvent("PLAYER_TARGET_CHANGED")
 loader:RegisterEvent("PLAYER_FOCUS_CHANGED")
+loader:RegisterEvent("WHO_LIST_UPDATE")
 
 loader:SetScript("OnEvent", function(_, event, a, b, c, d)
   if event == "PLAYER_LOGIN" then
     EnsurePrefix()
-    msg("Loaded v2.0.1 (server-query).")
+    HookWhoFrameButtons()
+
+    if WhoFrame then
+      WhoFrame:HookScript("OnShow", HookWhoFrameButtons)
+    end
+
+    if FriendsFrame then
+      FriendsFrame:HookScript("OnShow", HookWhoFrameButtons)
+    end
+
+    if type(WhoList_Update) == "function" then
+      hooksecurefunc("WhoList_Update", HookWhoFrameButtons)
+    end
+
+    msg("Loaded v2.1.0 (paragon + playerbot tooltips).")
+    return
+  end
+
+  if event == "WHO_LIST_UPDATE" then
+    HookWhoFrameButtons()
+    if currentWhoName then
+      RefreshWhoTooltip(currentWhoName)
+    end
     return
   end
 
@@ -173,10 +367,10 @@ loader:SetScript("OnEvent", function(_, event, a, b, c, d)
     if prefix ~= RTG_PARAGON_PREFIX then return end
     if type(message) ~= "string" then return end
 
-    -- Message format from server: "A:<name>:<paragon>"
-    local name, lvl = message:match("^A:([^:]+):(%d+)$")
-    if name and lvl then
-      CacheSet(name, lvl)
+    -- Extended message format from server: "B:<name>:<paragon>:<kind>"
+    local name, lvl, kind = message:match("^B:([^:]+):(%d+):([^:]+)$")
+    if name and lvl and kind then
+      CacheSet(name, lvl, kind)
 
       -- If the unit is currently target/focus, refresh immediately
       if UnitExists("target") and UnitIsPlayer("target") and UnitName("target") == name then
@@ -189,6 +383,30 @@ loader:SetScript("OnEvent", function(_, event, a, b, c, d)
           SetUnitFrameParagon(FocusFrame, FocusFrame.name, "focus")
         end
       end
+
+      RefreshWhoTooltip(name)
+      return
+    end
+
+    -- Legacy message format from server: "A:<name>:<paragon>"
+    name, lvl = message:match("^A:([^:]+):(%d+)$")
+    if name and lvl then
+      local existing = CacheGet(name)
+      CacheSet(name, lvl, existing and existing.kind or "real")
+
+      -- If the unit is currently target/focus, refresh immediately
+      if UnitExists("target") and UnitIsPlayer("target") and UnitName("target") == name then
+        if TargetFrame and TargetFrame.name then
+          SetUnitFrameParagon(TargetFrame, TargetFrame.name, "target")
+        end
+      end
+      if UnitExists("focus") and UnitIsPlayer("focus") and UnitName("focus") == name then
+        if FocusFrame and FocusFrame.name then
+          SetUnitFrameParagon(FocusFrame, FocusFrame.name, "focus")
+        end
+      end
+
+      RefreshWhoTooltip(name)
     end
     return
   end

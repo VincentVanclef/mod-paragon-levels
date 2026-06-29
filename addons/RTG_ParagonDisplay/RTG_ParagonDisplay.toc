@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: RTG Paragon Display
-## Notes: Shows Paragon as a second line (tooltip + target/focus). Focus-safe build.
+## Notes: Shows Paragon plus real-player/playerbot/rndbot status in tooltips and target/focus.
 ## Author: RTG
-## Version: 1.1.2
+## Version: 2.1.0
 RTG_ParagonDisplay.lua
