@@ -1,5 +1,5 @@
 -- RTG_ParagonDisplay.lua (WotLK 3.3.5a)
--- v2.1.0 - Server-query build with player/rndbot tooltip support
+-- v2.2.0 - Server-query build with player/rndbot tooltip support + Who List bot filter
 --
 -- Requires server responder in mod-paragon-levels:
 --   Client whisper LANG_ADDON:  "RTG_PARAGON\tQ:<name>"
@@ -16,7 +16,8 @@ RTG_PARAGON_PREFIX = "RTG_PARAGON"
 RTG_PARAGON_LABEL  = "Paragon Level: "
 RTG_PARAGON_TICK   = 0.12          -- update cadence for target/focus refresh
 RTG_PARAGON_REQ_THROTTLE = 0.50    -- seconds between requests per name
-RTG_PARAGON_CACHE_TTL    = 30.0    -- seconds before cached values expire
+RTG_PARAGON_CACHE_TTL    = 120.0   -- seconds before cached values expire
+RTG_PARAGON_WHO_FILTER_DEFAULT = false -- false = show bots unless player chooses to hide them
 
 local function msg(s)
   DEFAULT_CHAT_FRAME:AddMessage("|cff66ccff[RTG Paragon]|r " .. tostring(s))
@@ -24,6 +25,54 @@ end
 
 local function Now()
   return GetTime()
+end
+
+local function Trim(value)
+  value = tostring(value or "")
+  return value:match("^%s*(.-)%s*$") or ""
+end
+
+local function EnsureDB()
+  if type(RTGParagonDisplayDB) ~= "table" then
+    RTGParagonDisplayDB = {}
+  end
+
+  if RTGParagonDisplayDB.hideWhoBots == nil then
+    RTGParagonDisplayDB.hideWhoBots = RTG_PARAGON_WHO_FILTER_DEFAULT and true or false
+  end
+
+  return RTGParagonDisplayDB
+end
+
+local function WhoBotsHidden()
+  local db = EnsureDB()
+  return db.hideWhoBots == true
+end
+
+local function SetWhoBotsHidden(hidden, quiet)
+  local db = EnsureDB()
+  db.hideWhoBots = hidden and true or false
+
+  -- These functions are defined later in the file; guard so login-time calls are safe.
+  if type(UpdateWhoToggleButton) == "function" then
+    UpdateWhoToggleButton()
+  end
+
+  if type(RefreshWhoListForBotFilter) == "function" then
+    RefreshWhoListForBotFilter()
+  end
+
+  if not quiet then
+    if db.hideWhoBots then
+      msg("/who random bots are now hidden. Use /rtgwho show to show them again.")
+    else
+      msg("/who random bots are now shown. Use /rtgwho hide to hide them again.")
+    end
+  end
+end
+
+local function ToggleWhoBotsHidden()
+  SetWhoBotsHidden(not WhoBotsHidden(), false)
 end
 
 -- Cache: cache[name] = { lvl = number, kind = string, t = time() }
@@ -218,10 +267,12 @@ GameTooltip:HookScript("OnTooltipSetUnit", function(self)
   tooltipGuard = false
 end)
 
--- ------------------------------- Who list tooltip -------------------------------
+-- -------------------------- Who list tooltip / filter --------------------------
 
 local currentWhoButton = nil
 local currentWhoName = nil
+local whoToggleButton = nil
+local whoFilterApplying = false
 
 local function GetWhoButtonIndex(button)
   if not button then return nil end
@@ -270,9 +321,122 @@ local function GetWhoButtonName(button)
   return nil
 end
 
+local function GetWhoResultCount()
+  if not GetNumWhoResults then return 0, 0 end
+
+  local shown, total = GetNumWhoResults()
+  return tonumber(shown) or 0, tonumber(total) or tonumber(shown) or 0
+end
+
+local function PrimeWhoCache()
+  if not GetWhoInfo then return end
+
+  local shown = GetWhoResultCount()
+  for i = 1, shown do
+    local name = GetWhoInfo(i)
+    if name and name ~= "" and CacheGet(name) == nil then
+      RequestParagon(name)
+    end
+  end
+end
+
+local function IsWhoNameHiddenBot(name)
+  if not WhoBotsHidden() then return false end
+  if not name or name == "" then return false end
+
+  local info = CacheGet(name)
+  if info == nil then
+    RequestParagon(name)
+    -- Unknown names stay visible until the server identifies them.
+    -- This prevents real players from disappearing before metadata arrives.
+    return false
+  end
+
+  return IsBotKind(info.kind)
+end
+
+function UpdateWhoToggleButton()
+  if not whoToggleButton then return end
+
+  if WhoBotsHidden() then
+    whoToggleButton:SetText("Bots: Hidden")
+  else
+    whoToggleButton:SetText("Bots: Shown")
+  end
+end
+
+local function ShowWhoToggleTooltip(self)
+  GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine("RTG Who List Bot Filter", 0.4, 0.8, 1.0)
+  GameTooltip:AddLine("Click to toggle random/playerbot rows in /who.", 1.0, 1.0, 1.0)
+  GameTooltip:AddLine("Unknown names stay visible until RTG identifies them.", 0.7, 0.7, 0.7)
+  GameTooltip:AddLine("Slash: /rtgwho hide, /rtgwho show, /rtgwho toggle", 0.7, 0.7, 0.7)
+  GameTooltip:Show()
+end
+
+local function HideWhoToggleTooltip()
+  GameTooltip:Hide()
+end
+
+local function EnsureWhoToggleButton()
+  if not WhoFrame or whoToggleButton then
+    return
+  end
+
+  whoToggleButton = CreateFrame("Button", "RTGParagonWhoBotToggleButton", WhoFrame, "UIPanelButtonTemplate")
+  whoToggleButton:SetWidth(105)
+  whoToggleButton:SetHeight(22)
+  whoToggleButton:SetPoint("BOTTOMRIGHT", WhoFrame, "BOTTOMRIGHT", -36, 83)
+  whoToggleButton:SetScript("OnClick", ToggleWhoBotsHidden)
+  whoToggleButton:SetScript("OnEnter", ShowWhoToggleTooltip)
+  whoToggleButton:SetScript("OnLeave", HideWhoToggleTooltip)
+  whoToggleButton:Show()
+
+  UpdateWhoToggleButton()
+end
+
+local function ApplyWhoListBotFilter()
+  if whoFilterApplying then return end
+  whoFilterApplying = true
+
+  HookWhoFrameButtons()
+  EnsureWhoToggleButton()
+  PrimeWhoCache()
+
+  if WhoBotsHidden() then
+    local count = WHOFRAME_NUM_BUTTONS or 17
+    for i = 1, count do
+      local button = _G["WhoFrameButton" .. i]
+      if button and button:IsShown() then
+        local name = GetWhoButtonName(button)
+        if IsWhoNameHiddenBot(name) then
+          if currentWhoButton == button then
+            HideWhoTooltip(button)
+          end
+          button:Hide()
+        end
+      end
+    end
+  end
+
+  whoFilterApplying = false
+end
+
+function RefreshWhoListForBotFilter()
+  -- Let Blizzard's WhoList_Update redraw the rows first so turning the filter off
+  -- restores any hidden bot rows cleanly, then our secure hook reapplies hiding if needed.
+  if type(WhoList_Update) == "function" and WhoFrame and WhoFrame:IsShown() then
+    WhoList_Update()
+  else
+    ApplyWhoListBotFilter()
+  end
+end
+
 local function ShowWhoTooltip(button)
   local name = GetWhoButtonName(button)
   if not name or name == "" then return end
+  if IsWhoNameHiddenBot(name) then return end
 
   currentWhoButton = button
   currentWhoName = name
@@ -301,7 +465,7 @@ local function RefreshWhoTooltip(name)
   ShowWhoTooltip(currentWhoButton)
 end
 
-local function HideWhoTooltip(button)
+function HideWhoTooltip(button)
   if button == currentWhoButton then
     currentWhoButton = nil
     currentWhoName = nil
@@ -309,7 +473,7 @@ local function HideWhoTooltip(button)
   end
 end
 
-local function HookWhoFrameButtons()
+function HookWhoFrameButtons()
   local count = WHOFRAME_NUM_BUTTONS or 17
   for i = 1, count do
     local button = _G["WhoFrameButton" .. i]
@@ -319,6 +483,36 @@ local function HookWhoFrameButtons()
       button.__rtgParagonHooked = true
     end
   end
+end
+
+-- ------------------------------- Slash commands -------------------------------
+
+SLASH_RTGWHO1 = "/rtgwho"
+SLASH_RTGWHO2 = "/whohidebots"
+SlashCmdList["RTGWHO"] = function(command)
+  command = ToLowerAscii(Trim(command or ""))
+
+  if command == "" or command == "toggle" then
+    ToggleWhoBotsHidden()
+    return
+  end
+
+  if command == "hide" or command == "off" then
+    SetWhoBotsHidden(true, false)
+    return
+  end
+
+  if command == "show" or command == "on" then
+    SetWhoBotsHidden(false, false)
+    return
+  end
+
+  if command == "status" then
+    msg("/who random bots are currently " .. (WhoBotsHidden() and "hidden." or "shown."))
+    return
+  end
+
+  msg("Use: /rtgwho toggle, /rtgwho hide, /rtgwho show, or /rtgwho status")
 end
 
 -- ------------------------------- Events / update loop -------------------------------
@@ -333,26 +527,36 @@ loader:RegisterEvent("WHO_LIST_UPDATE")
 loader:SetScript("OnEvent", function(_, event, a, b, c, d)
   if event == "PLAYER_LOGIN" then
     EnsurePrefix()
+    EnsureDB()
     HookWhoFrameButtons()
+    EnsureWhoToggleButton()
 
     if WhoFrame then
-      WhoFrame:HookScript("OnShow", HookWhoFrameButtons)
+      WhoFrame:HookScript("OnShow", function()
+        HookWhoFrameButtons()
+        EnsureWhoToggleButton()
+        ApplyWhoListBotFilter()
+      end)
     end
 
     if FriendsFrame then
-      FriendsFrame:HookScript("OnShow", HookWhoFrameButtons)
+      FriendsFrame:HookScript("OnShow", function()
+        HookWhoFrameButtons()
+        EnsureWhoToggleButton()
+        ApplyWhoListBotFilter()
+      end)
     end
 
     if type(WhoList_Update) == "function" then
-      hooksecurefunc("WhoList_Update", HookWhoFrameButtons)
+      hooksecurefunc("WhoList_Update", ApplyWhoListBotFilter)
     end
 
-    msg("Loaded v2.1.0 (paragon + playerbot tooltips).")
+    msg("Loaded v2.2.0 (paragon + playerbot tooltips + /who bot filter).")
     return
   end
 
   if event == "WHO_LIST_UPDATE" then
-    HookWhoFrameButtons()
+    ApplyWhoListBotFilter()
     if currentWhoName then
       RefreshWhoTooltip(currentWhoName)
     end
@@ -384,6 +588,7 @@ loader:SetScript("OnEvent", function(_, event, a, b, c, d)
         end
       end
 
+      ApplyWhoListBotFilter()
       RefreshWhoTooltip(name)
       return
     end
@@ -406,6 +611,7 @@ loader:SetScript("OnEvent", function(_, event, a, b, c, d)
         end
       end
 
+      ApplyWhoListBotFilter()
       RefreshWhoTooltip(name)
     end
     return
