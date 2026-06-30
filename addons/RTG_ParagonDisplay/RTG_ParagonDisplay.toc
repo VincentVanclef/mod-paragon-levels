@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: RTG Paragon Display
-## Notes: Shows Paragon plus real-player/playerbot/rndbot status in tooltips, target/focus, and optional /who filtering.
+## Notes: Shows Paragon plus real-player/playerbot/rndbot status in tooltips, target/focus, and server-side /who bot filter toggle.
 ## Author: RTG
-## Version: 2.2.0
+## Version: 2.3.0
 ## SavedVariablesPerCharacter: RTGParagonDisplayDB
 RTG_ParagonDisplay.lua

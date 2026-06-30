@@ -18,7 +18,8 @@
  * Notes:
  * - This file assumes your paragon value comes from sCurrencyHandler->GetCharacterCurrency(guid)->GetParagonLevel()
  * - This file assumes you have RewardSystem available as sRewardSystem.
- * - Per-character toggle is stored in Characters DB table: character_paragon_settings (guid PK, enable_chat_color tinyint)
+ * - Per-character toggles are stored in Characters DB table: character_paragon_settings
+ *   (guid PK, enable_chat_color tinyint, hide_who_bots tinyint)
  */
 
 #include "AccountMgr.h"
@@ -59,8 +60,34 @@
 
 namespace
 {
-    // Characters DB (per-character) setting for whether paragon tier colors are used in Paragon system messages.
+    // Characters DB (per-character) settings.
     static constexpr char const* PARAGON_SETTINGS_TABLE = "character_paragon_settings";
+
+    static void EnsureParagonSettingsSchema()
+    {
+        CharacterDatabase.DirectExecute(fmt::format(
+            "CREATE TABLE IF NOT EXISTS `{}` ("
+            "`guid` INT UNSIGNED NOT NULL,"
+            "`enable_chat_color` TINYINT UNSIGNED NOT NULL DEFAULT 1,"
+            "`hide_who_bots` TINYINT UNSIGNED NOT NULL DEFAULT 0,"
+            "PRIMARY KEY (`guid`)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            PARAGON_SETTINGS_TABLE));
+
+        QueryResult res = CharacterDatabase.Query(fmt::format(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() "
+            "AND TABLE_NAME = '{}' "
+            "AND COLUMN_NAME = 'hide_who_bots'",
+            PARAGON_SETTINGS_TABLE));
+
+        if (!res || res->Fetch()[0].Get<uint64>() == 0)
+        {
+            CharacterDatabase.DirectExecute(fmt::format(
+                "ALTER TABLE `{}` ADD COLUMN `hide_who_bots` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `enable_chat_color`",
+                PARAGON_SETTINGS_TABLE));
+        }
+    }
 
     static bool LoadChatColorEnabled(uint32 guidLow, bool defaultValue)
     {
@@ -81,6 +108,27 @@ namespace
             "INSERT INTO `{}` (guid, enable_chat_color) VALUES ({}, {}) "
             "ON DUPLICATE KEY UPDATE enable_chat_color = VALUES(enable_chat_color)",
             PARAGON_SETTINGS_TABLE, guidLow, enabled ? 1 : 0));
+    }
+
+    static bool LoadWhoBotsHidden(uint32 guidLow, bool defaultValue = false)
+    {
+        QueryResult res = CharacterDatabase.Query(fmt::format(
+            "SELECT hide_who_bots FROM `{}` WHERE guid = {} LIMIT 1",
+            PARAGON_SETTINGS_TABLE, guidLow));
+
+        if (!res)
+            return defaultValue;
+
+        Field* f = res->Fetch();
+        return f[0].Get<uint8>() != 0;
+    }
+
+    static void SaveWhoBotsHidden(uint32 guidLow, bool hidden)
+    {
+        CharacterDatabase.DirectExecute(fmt::format(
+            "INSERT INTO `{}` (guid, hide_who_bots) VALUES ({}, {}) "
+            "ON DUPLICATE KEY UPDATE hide_who_bots = VALUES(hide_who_bots)",
+            PARAGON_SETTINGS_TABLE, guidLow, hidden ? 1 : 0));
     }
 
     static std::vector<std::string> SplitTab(std::string const& s)
@@ -226,7 +274,31 @@ public:
 		if (prefix != "RTG_PARAGON")
 			return;
 
-		// Payload: "Q:<name>"
+		// Payload: "W?" asks for the player's server-side /who bot visibility setting.
+		if (payload == "W?")
+		{
+			bool hidden = IsWhoBotsHidden(player);
+			std::string reply = fmt::format("W:{}", hidden ? 1 : 0);
+			WorldPacket pkt = CreateAddonWhisperPacket(prefix, reply, player);
+			player->SendDirectMessage(&pkt);
+			msg.clear();
+			return;
+		}
+
+		// Payload: "W:0" or "W:1" saves the player's server-side /who bot visibility setting.
+		if (payload == "W:0" || payload == "W:1")
+		{
+			bool hidden = payload == "W:1";
+			SetWhoBotsHidden(player, hidden);
+
+			std::string reply = fmt::format("W:{}", hidden ? 1 : 0);
+			WorldPacket pkt = CreateAddonWhisperPacket(prefix, reply, player);
+			player->SendDirectMessage(&pkt);
+			msg.clear();
+			return;
+		}
+
+		// Payload: "Q:<name>" asks for paragon/player kind metadata.
 		if (payload.rfind("Q:", 0) != 0 || payload.size() <= 2)
 		{
 			msg.clear();
@@ -255,6 +327,8 @@ public:
 
     void OnAfterConfigLoad(bool /*reload*/) override
     {
+        EnsureParagonSettingsSchema();
+
         isEnabled = sConfigMgr->GetOption<bool>("ParagonLevel.Enable", true);
         m_xpPerLevelMod = sConfigMgr->GetOption<float>("ParagonLevel.XpPerLevelMod", 2.0f);
         m_maxParagonLevel = sConfigMgr->GetOption<uint32>("ParagonLevel.MaxParagonLevel", 200);
@@ -283,6 +357,7 @@ public:
         {
             sWorld->setIntConfig(CONFIG_MAX_PLAYER_LEVEL, defaultMaxLevel);
             m_cachedChatColorEnabled.clear();
+            m_cachedWhoBotsHidden.clear();
         }
     }
 
@@ -437,6 +512,25 @@ public:
         SaveChatColorEnabled(guidLow, enabled);
     }
 
+    bool IsWhoBotsHidden(Player* player)
+    {
+        uint32 guidLow = player->GetGUID().GetCounter();
+        auto it = m_cachedWhoBotsHidden.find(guidLow);
+        if (it != m_cachedWhoBotsHidden.end())
+            return it->second;
+
+        bool hidden = LoadWhoBotsHidden(guidLow, false);
+        m_cachedWhoBotsHidden[guidLow] = hidden;
+        return hidden;
+    }
+
+    void SetWhoBotsHidden(Player* player, bool hidden)
+    {
+        uint32 guidLow = player->GetGUID().GetCounter();
+        m_cachedWhoBotsHidden[guidLow] = hidden;
+        SaveWhoBotsHidden(guidLow, hidden);
+    }
+
     std::string GetTierColor(uint32 paragonLevel) const
     {
         if (paragonLevel >= 200)
@@ -531,6 +625,7 @@ private:
 
     bool m_chatColorDefaultEnabled = true;
     std::unordered_map<uint32, bool> m_cachedChatColorEnabled;
+    std::unordered_map<uint32, bool> m_cachedWhoBotsHidden;
 
     static ParagonLevels* s_instance;
 };
